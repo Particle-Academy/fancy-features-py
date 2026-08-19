@@ -35,7 +35,7 @@ SUITE = "shared/feature-entitlement"
 
 #: Moved deliberately, never automatically. A pin that follows whatever is on
 #: disk asserts nothing.
-PINNED_SUITE_VERSION = "0.4.0"
+PINNED_SUITE_VERSION = "0.5.0"
 
 _IMPL = {
     "entitled": lambda i: entitled(i["enabled"], i["type"], i["includedQuantity"], i["used"]),
