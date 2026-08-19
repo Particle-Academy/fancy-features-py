@@ -8,6 +8,80 @@ version number is not a promise it can yet keep; the entries are.
 
 ## [Unreleased]
 
+## [0.2.0] - unreleased
+
+Two owner rulings, applied to all three runtimes together (`laravel-fms` 0.11.0,
+`@particle-academy/fancy-features` 0.5.0). Argument:
+`.ai/plans/fancy-commerce-gating-rulings.md`.
+
+### Changed
+
+- **BREAKING: `can_access` answers ENTITLEMENT, not quota.** A resource grant
+  from a `FeatureSource` whose quota is exhausted is now `True`.
+
+  This package shipped the wart deliberately — a port is not the place to
+  redesign semantics — and recorded it in its `AGENTS.md`. The owner has now
+  ruled it a contract defect: the answer used to depend on where the feature
+  happened to be defined, so `can_access("ai-tokens", user)` asked a different
+  question for the same subject depending on which layer the plan was modelled
+  in.
+
+  **What to do:** move a consumption guard to `can_consume` (a read) or
+  `try_consume` (the gate). `is_entitled` is a new explicit alias for the
+  entitlement question.
+
+- **`try_consume` enforces the ceiling, not `remaining`.** With no
+  `overage_limit` configured the two are identical, so nothing changes unless
+  you opt in.
+
+### Added
+
+- **`overage_limit` does something.** It was carried by all three runtimes and
+  read by none. `fancy-catalog`'s
+  `test_the_overage_limit_is_carried_but_not_yet_enforced` pinned that fact so
+  somebody would notice the day it changed; this is that day, and that test is
+  now the enforcement test rather than the pin.
+
+  It is a **ceiling** on billable consumption past `included_quantity`. `None`
+  or `0` means no overage — every configuration in existence has it unset, so
+  reading `None` as "unbounded" would have made each one an unlimited spending
+  authority.
+
+- **Overage is permitted only where it can be RECORDED.** `OverageStore` is a
+  new optional protocol (`get_overage` / `add_overage`), duck-typed exactly as
+  `AtomicUsageStore` is, and `FeatureManager.on_overage(listener)` returns an
+  unsubscribe. With neither, the ceiling stays at `included_quantity`.
+
+  It fails closed on purpose: unbilled usage is the one failure here that cannot
+  be repaired after the fact.
+
+- **`is_entitled` / `ais_entitled`, `can_consume` / `acan_consume`,
+  `overage_for` / `aoverage_for`, `on_overage`.**
+
+- **`Feature.overage_limit`**, so a host with no catalog can express "1,000
+  included, 200 billable" in config. MAX across definition, group override and
+  source grant, like `limit`.
+
+- **`fancy_features.quota`** — `entitled`, `consumption_ceiling`,
+  `allows_consumption`, `overage_delta`, `can_consume` as pure functions, held
+  to the shared `shared/feature-entitlement` conformance table alongside both
+  twins. Cross-runtime behaviour belongs in a fixture row, not in three sets of
+  prose that agree today.
+
+- **`OverageEvent` / `OverageListener`** on the contract.
+
+### Fixed
+
+- **`remaining + used` was being used as the included quantity.** `remaining` is
+  clamped at zero, so the moment a subject reached their limit the derived
+  "limit" became whatever they had already spent — self-fulfilling, and it would
+  have made every overage figure measure from the wrong line. `_limit_for()`
+  resolves the limit directly, and returns a sentinel rather than overloading
+  `None`, which already means unlimited.
+
+  *No consumer action:* before this release nothing consumed past the limit, so
+  the two only ever met at exactly the limit, where they agree.
+
 ## [0.1.0] - unreleased
 
 The first cut: the whole resolution chain, groups, quotas, and the shared

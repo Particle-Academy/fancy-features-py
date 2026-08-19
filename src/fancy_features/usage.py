@@ -49,6 +49,12 @@ class InMemoryUsageStore:
 
     def __init__(self, key_of: Any = None) -> None:
         self._cells: dict[tuple[str, str, str], int] = {}
+        # Billable overage, in its own map rather than folded into `_cells`.
+        # Recorded, never derived: `max(0, used - included)` at read time is one
+        # dict cheaper and quietly wrong, because a mid-period plan upgrade
+        # raises the included quantity and erases overage that was genuinely
+        # incurred -- possibly after it was reported to a billing provider.
+        self._overage: dict[tuple[str, str, str], int] = {}
         self._key_of = key_of or default_subject_key
 
     def _cell(
@@ -73,6 +79,23 @@ class InMemoryUsageStore:
         # would otherwise hand back quota that was never returned.
         self._cells[cell] = max(0, self._cells.get(cell, 0) + whole_units(amount))
 
+    def get_overage(
+        self, subject: Subject, feature_key: str, period: BillingPeriod | None = None
+    ) -> int:
+        """Billable overage recorded against this subject + feature in the period."""
+        return self._overage.get(self._cell(subject, feature_key, period), 0)
+
+    def add_overage(
+        self,
+        subject: Subject,
+        feature_key: str,
+        amount: int,
+        period: BillingPeriod | None = None,
+    ) -> None:
+        """Record a signed change in billable overage. Clamped at zero, as usage is."""
+        cell = self._cell(subject, feature_key, period)
+        self._overage[cell] = max(0, self._overage.get(cell, 0) + whole_units(amount))
+
     def try_consume(
         self,
         subject: Subject,
@@ -92,5 +115,6 @@ class InMemoryUsageStore:
         """Drop every usage row for a subject in one window -- the renewal reset."""
         subject_key = self._key_of(subject)
         period_key = period.cell
-        for cell in [c for c in self._cells if c[0] == subject_key and c[2] == period_key]:
-            del self._cells[cell]
+        for store in (self._cells, self._overage):
+            for cell in [c for c in store if c[0] == subject_key and c[2] == period_key]:
+                del store[cell]

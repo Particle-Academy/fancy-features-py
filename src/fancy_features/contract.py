@@ -27,6 +27,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 
 __all__ = [
     "AccessResult",
+    "AtomicUsageStore",
     "BillingPeriod",
     "Feature",
     "FeatureGrant",
@@ -34,6 +35,9 @@ __all__ = [
     "FeatureSource",
     "FeatureType",
     "GroupStore",
+    "OverageEvent",
+    "OverageListener",
+    "OverageStore",
     "Subject",
     "UsageStore",
 ]
@@ -105,6 +109,16 @@ class FeatureGrant:
     type: FeatureType = "boolean"
     enabled: bool = False
     included_quantity: int | None = None
+    #: BILLABLE OVERAGE permitted past ``included_quantity``, as a **ceiling**.
+    #:
+    #: ``None`` or ``0`` means no overage -- consumption stops at the included
+    #: quantity. That reading is load-bearing rather than arbitrary: the field
+    #: was carried by three runtimes and read by NONE until this release, so
+    #: every configuration in existence has it unset, and reading ``None`` as
+    #: "unbounded" would turn each of them into an unlimited spending authority.
+    #:
+    #: Consumption inside the band is permitted only when it can be RECORDED --
+    #: see :class:`OverageStore`.
     overage_limit: int | None = None
     source: str | None = None
     config: Mapping[str, Any] | None = None
@@ -152,6 +166,67 @@ class UsageStore(Protocol):
         amount: int,
         period: BillingPeriod | None = None,
     ) -> Awaitable[None] | None: ...
+
+
+@runtime_checkable
+class OverageStore(UsageStore, Protocol):
+    """A :class:`UsageStore` that can also record BILLABLE OVERAGE.
+
+    Optional, and duck-typed exactly as :class:`AtomicUsageStore` is.
+
+    **A store that cannot record overage does not get to permit it**: with
+    neither this protocol nor an ``on_overage`` listener, consumption is refused
+    at ``included_quantity``, which is what every host has today. Unbilled usage
+    is the one failure here that cannot be repaired after the fact, so the
+    default refuses in that direction.
+
+    Recorded, never derived. ``max(0, used - included)`` at read time is one
+    dict cheaper and quietly wrong: when a plan is upgraded mid-period the
+    included quantity rises and overage that was genuinely incurred -- possibly
+    already reported to a billing provider -- vanishes from the derivation.
+    """
+
+    def get_overage(
+        self, subject: Subject, feature_key: str, period: BillingPeriod | None = None
+    ) -> int | Awaitable[int]: ...
+
+    def add_overage(
+        self,
+        subject: Subject,
+        feature_key: str,
+        amount: int,
+        period: BillingPeriod | None = None,
+    ) -> Awaitable[None] | None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class OverageEvent:
+    """Billable consumption past the included quantity, as it is recorded.
+
+    ## This is where the package stops
+
+    It records overage; it does not invoice it. Reporting metered usage to
+    Stripe needs the *subscription item* id -- the thing that maps a
+    subscription to one specific price -- which a headless gating engine does not
+    have, should not look up, and cannot know at all for a host metering
+    something Stripe never bills for.
+
+    ``units`` is what THIS consumption added; ``total_units`` is the running
+    total for the period. Providers differ on which they want, so both are here
+    and neither has to be recomputed by a listener that would get it subtly
+    wrong.
+    """
+
+    feature: str
+    subject: Subject
+    units: int
+    total_units: int
+    included_quantity: int
+    period: BillingPeriod | None = None
+
+
+#: ``(OverageEvent) -> None``, possibly awaitable. Registered with ``on_overage``.
+OverageListener = Callable[..., Any]
 
 
 @runtime_checkable
@@ -250,6 +325,14 @@ class Feature:
     #: Resource quota: ``int`` or ``(subject, context) -> int``. ``None`` is
     #: unlimited.
     limit: int | IntCallback | None = None
+    #: Resource: billable overage permitted past ``limit``, as a **ceiling**.
+    #:
+    #: Here as well as on :class:`FeatureGrant` so a host with no catalog can
+    #: still say "1,000 included, 200 billable". Resolved as MAX across the
+    #: definition, any group override and any source grant -- the same
+    #: most-generous rule ``limit`` uses, for the same reason: a paid plan may
+    #: raise an allowance and may never silently lower one.
+    overage_limit: int | None = None
     #: Resource usage override: ``(subject, context) -> int``. When absent the
     #: :class:`UsageStore` answers.
     usage: IntCallback | None = None

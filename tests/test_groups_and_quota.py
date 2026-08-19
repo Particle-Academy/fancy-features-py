@@ -376,7 +376,15 @@ def test_try_consume_enforces_the_limit_in_the_period_it_was_given() -> None:
     assert features.usage_for("tokens", "u", period=PERIOD_ONE) == 100
 
 
-def test_can_access_reads_the_period_for_a_resource_grant() -> None:
+def test_can_consume_reads_the_period_for_a_resource_grant() -> None:
+    """The period reaches the quota READ, not just the write.
+
+    This used to be asserted through `can_access`, which is now quota-blind by
+    ruling. The property it was really guarding -- that a spent period and a
+    fresh one give different answers -- lives on `can_consume`, and it is the one
+    that costs money: reading a period-less bucket while writing a period one
+    means the enforced limit is not the configured one.
+    """
     features = create_features(
         sources=[
             _source(
@@ -386,8 +394,12 @@ def test_can_access_reads_the_period_for_a_resource_grant() -> None:
         ]
     )
     features.increment("tokens", "u", 2, period=PERIOD_ONE)
-    assert features.can_access("tokens", "u", period=PERIOD_ONE) is False
-    assert features.can_access("tokens", "u", period=PERIOD_TWO) is True
+
+    assert features.can_consume("tokens", "u", 1, period=PERIOD_ONE) is False
+    assert features.can_consume("tokens", "u", 1, period=PERIOD_TWO) is True
+
+    # Entitlement is period-blind, because entitlement is not quota.
+    assert features.can_access("tokens", "u", period=PERIOD_ONE) is True
 
 
 def test_reset_period_clears_that_window_only() -> None:

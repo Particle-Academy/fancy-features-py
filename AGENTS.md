@@ -105,26 +105,57 @@ links, in both directions.
 2. **The billing period is threaded through resolution.** Above.
 3. **`included_quantity=None` means unlimited.** The written contract
    (`.ai/plans/fancy-catalog-features-contract.md` §2) and `fancy-features-js`
-   both say so. PHP's `Fms::can()` reads the same nullable column as **deny**.
-   The spec settles it; the divergence is reported, not absorbed.
+   both say so. PHP's `Fms::can()` read the same nullable column as **deny**
+   until `laravel-fms` 0.10.0, which fixed it. No longer a divergence; kept
+   here because the reasoning is what settles the next one.
 4. **No mirrored contract in `fancy-catalog`.** The TypeScript pair duplicates
    `FeatureGrant`/`FeatureSource` verbatim and lets structural typing police the
    copy. Python has no equivalent across distributions, so there is one
    definition and the bridge imports it.
 
-## Known wart, faithfully reproduced
+## Entitlement is not quota
 
-**`can_access` on a resource feature means different things depending on where
-the feature came from.** A registry or config resource feature is on if its
-`enabled`/`check` says so, *regardless of remaining quota*; a resource feature
-arriving from a `FeatureSource` is on only while quota remains. Both twins do
-this and this port matches them. It is inconsistent and it is a port, not a
-redesign — flagged in the plan rather than fixed unilaterally.
+**`can_access` answers ENTITLEMENT, on every branch.** Until 0.2.0 it did not:
+a `FeatureSource` resource grant was on only while quota remained, while the
+same feature defined in the registry was on regardless. Both twins did it, this
+port reproduced it faithfully, and the owner ruled it a contract defect rather
+than a divergence. All three runtimes changed together.
+
+- `can_access` / `is_entitled` — is this granted.
+- `can_consume` — granted AND this amount fits. A **read**; another request can
+  take the last unit before the write.
+- `try_consume` — the gate.
+
+Do not re-merge them. `quota.entitled()` takes `included_quantity` and `used`
+and is required to **ignore** them; conformance rows `0002` and `0004` fail if
+it stops, and nothing else does.
+
+## Billable overage
+
+`overage_limit` is a **ceiling** on consumption past the included quantity, and
+**`None` means no overage**. That reading is load-bearing: the field was carried
+by three runtimes and read by none, so every configuration in existence has it
+unset, and "unbounded" would make each one an unlimited spending authority.
+
+**Overage is permitted only when it can be RECORDED** — a store implementing
+`add_overage` (`OverageStore`), or an `on_overage` listener. A host with
+neither keeps the old behaviour. That is the opt-in mechanism and it fails
+closed on purpose: unbilled usage is the one failure that cannot be repaired
+after the fact.
+
+`quota.overage_delta()` is **signed**, so increment and decrement share it. Do
+not split it into two functions — that is how the two directions drift.
+
+**`remaining + used` is NOT the included quantity.** `remaining` is clamped at
+zero, so once a subject is in overage that sum reports the limit as whatever
+they have already spent, and every overage figure downstream then measures from
+the wrong line. `_limit_for()` resolves it directly and returns `_UNRESOLVED`
+rather than overloading `None`, which already means unlimited.
 
 ## Testing
 
 ```bash
-python -m pytest        # 110 tests, no install required
+python -m pytest        # 129 tests, no install required
 ruff check . && ruff format --check .
 mypy
 ```
@@ -133,8 +164,14 @@ The suite runs on a bare checkout via `pythonpath = ["src"]`. **CI also installs
 the wheel and runs against it** — only that catches an unshipped file or a
 missing `py.typed`.
 
+The `shared/feature-entitlement` conformance rows run from the sibling checkout
+through a path dependency; `PINNED_SUITE_VERSION` is moved deliberately, never
+to match whatever is on disk.
+
 Every load-bearing behaviour here has been mutation-checked: reproducing the
 callback bug, dropping the period, taking MIN instead of MAX for a group limit,
-making the gate non-authoritative, and believing an awaitable each fail a named
-test. If you change one of those, expect a specific test to go red — and if none
+making the gate non-authoritative, believing an awaitable, putting the quota
+check back into `entitled` (fails exactly conformance rows 0002 and 0004),
+writing `overage_delta` as `max(0, after - included)`, and ignoring
+`overage_limit` each fail a named test. If you change one of those, expect a specific test to go red — and if none
 does, the test is the thing that is wrong.

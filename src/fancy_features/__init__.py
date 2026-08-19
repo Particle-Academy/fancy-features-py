@@ -33,6 +33,9 @@ from .contract import (
     FeatureSource,
     FeatureType,
     GroupStore,
+    OverageEvent,
+    OverageListener,
+    OverageStore,
     Subject,
     UsageStore,
 )
@@ -62,6 +65,13 @@ from .manager import (
     PreStrategy,
     create_features,
 )
+from .quota import (
+    allows_consumption,
+    can_consume,
+    consumption_ceiling,
+    entitled,
+    overage_delta,
+)
 from .registry import FeatureRegistry
 from .usage import InMemoryUsageStore, whole_units
 
@@ -78,8 +88,17 @@ __all__ = [
     "FeatureSource",
     "FeatureType",
     "GroupStore",
+    "OverageEvent",
+    "OverageListener",
+    "OverageStore",
     "Subject",
     "UsageStore",
+    # -- Quota arithmetic (pinned by the shared/feature-entitlement suite) --
+    "allows_consumption",
+    "can_consume",
+    "consumption_ceiling",
+    "entitled",
+    "overage_delta",
     # -- Engine --
     "FeatureManager",
     "GateResolver",

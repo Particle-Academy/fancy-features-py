@@ -144,7 +144,15 @@ def test_a_source_grant_with_enabled_false_does_not_turn_it_on() -> None:
     assert features.can_access("beta", "u") is False
 
 
-def test_a_resource_grant_needs_remaining_quota_to_allow() -> None:
+def test_a_resource_grant_stays_entitled_when_the_quota_is_exhausted() -> None:
+    """The ruling, and this test used to assert the opposite.
+
+    A grant-sourced resource feature was on only while quota remained, while the
+    same feature defined in the registry was on regardless -- one question with
+    two answers, decided by which layer the plan happened to be modelled in.
+    `can_access` answers ENTITLEMENT in both now; `can_consume` is the quota
+    question.
+    """
     features = create_features(
         sources=[
             _source(
@@ -155,7 +163,15 @@ def test_a_resource_grant_needs_remaining_quota_to_allow() -> None:
     )
     assert features.can_access("tokens", "u") is True
     features.increment("tokens", "u", 2)
-    assert features.can_access("tokens", "u") is False
+
+    assert features.remaining("tokens", "u") == 0
+    # Still entitled -- the customer is still paying for it.
+    assert features.can_access("tokens", "u") is True
+    assert features.is_entitled("tokens", "u") is True
+
+    # The quota question moved here, and to try_consume for an actual write.
+    assert features.can_consume("tokens", "u", 1) is False
+    assert features.try_consume("tokens", "u", 1) is False
 
 
 def test_a_resource_grant_with_no_quantity_is_unlimited() -> None:

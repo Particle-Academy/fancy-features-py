@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fancy-features"
-version = "0.1.0"
+version = "0.2.0"
 description = "Headless feature management and metered-resource gating - feature flags, feature groups, quotas and billing-period usage. The Python twin of PHP particle-academy/laravel-fms and Node @particle-academy/fancy-features, and the owner of the shared feature contract fancy-catalog consumes."
 readme = "README.md"
 # 3.11, not the modal 3.10: 3.10 reaches end of life on 2026-10-31, and a floor
@@ -71,10 +71,18 @@ Source = "https://github.com/Particle-Academy/fancy-features-py"
 [project.optional-dependencies]
 
 [dependency-groups]
-test = ["pytest>=8.0"]
+# `fancy-conformance` is the shared FIXTURE package, first-party and with zero
+# runtime dependencies of its own. Test-only, in a PEP 735 group, so it never
+# reaches published metadata.
+test = ["pytest>=8.0", "fancy-conformance"]
 lint = ["ruff>=0.16"]
 typecheck = ["mypy>=1.11"]
 dev = [{ include-group = "test" }, { include-group = "lint" }, { include-group = "typecheck" }]
+
+[tool.uv.sources]
+# Not on PyPI yet. It is checked out beside this repository in the .agi
+# envelope; CI checks it out explicitly.
+fancy-conformance = { path = "../fancy-conformance/python", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fancy_features"]
@@ -91,7 +99,7 @@ testpaths = ["tests"]
 #
 # CI ALSO installs the wheel and runs the suite against it, because only that
 # catches an unshipped file or a missing `py.typed`.
-pythonpath = ["src"]
+pythonpath = ["src", "../fancy-conformance/python/src"]
 addopts = "--import-mode=importlib -ra"
 filterwarnings = ["error"]
 

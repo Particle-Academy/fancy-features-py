@@ -40,10 +40,13 @@ from .contract import (
     FeatureGroup,
     FeatureSource,
     GroupStore,
+    OverageEvent,
+    OverageListener,
     Subject,
     UsageStore,
 )
 from .groups import FeatureGroupRegistry, InMemoryGroupStore
+from .quota import allows_consumption, consumption_ceiling, entitled, overage_delta
 from .registry import FeatureRegistry
 from .usage import InMemoryUsageStore, whole_units
 
@@ -55,6 +58,13 @@ PreStrategy = Callable[..., Any]
 PreRemainingStrategy = Callable[..., Any]
 #: ``(feature, subject, context) -> bool | None`` -- the Laravel ``Gate`` analog.
 GateResolver = Callable[..., Any]
+
+#: "There is no limit to read here", which is distinct from ``None`` (unlimited).
+#: A sentinel rather than an overloaded ``None``: the whole point of this pair of
+#: values is that "unlimited" and "not configured" are different states, and
+#: overloading one null to mean both is the divergence that made ``included_
+#: quantity`` mean opposite things in two shipped packages.
+_UNRESOLVED: object = object()
 
 
 class FeatureManager:
@@ -81,6 +91,7 @@ class FeatureManager:
         self._gate = gate
         self._pre_strategies: dict[str, PreStrategy] = {}
         self._pre_remaining: dict[str, PreRemainingStrategy] = {}
+        self._overage_listeners: list[OverageListener] = []
 
         # The lower-priority `config` map. Held in its own registry rather than
         # merged into the programmatic one, because the order between them is
@@ -118,6 +129,24 @@ class FeatureManager:
 
     def pre_remaining_strategy_names(self) -> list[str]:
         return list(self._pre_remaining)
+
+    def on_overage(self, listener: OverageListener) -> Callable[[], None]:
+        """Listen for billable overage as it is recorded. Returns an unsubscribe.
+
+        Registering a listener is also one of the two ways to ENABLE overage at
+        all: consumption past the included quantity is permitted only when it
+        can be recorded, either by a store implementing ``add_overage`` or by a
+        listener that takes responsibility for it. Unbilled usage is the one
+        failure here that cannot be repaired after the fact, so the default
+        refuses in that direction.
+        """
+        self._overage_listeners.append(listener)
+
+        def unsubscribe() -> None:
+            if listener in self._overage_listeners:
+                self._overage_listeners.remove(listener)
+
+        return unsubscribe
 
     def register_source(self, source: FeatureSource) -> FeatureManager:
         """Append a :class:`FeatureSource` -- the catalog plug-in point."""
@@ -196,6 +225,78 @@ class FeatureManager:
         period: BillingPeriod | None = None,
     ) -> bool:
         return await self.acan_access(feature, subject, context, period)
+
+    def is_entitled(
+        self,
+        feature: str,
+        subject: Subject = None,
+        context: Any = None,
+        period: BillingPeriod | None = None,
+    ) -> bool:
+        """An explicit alias for :meth:`can_access` -- entitlement, not quota.
+
+        Exists so a call site that MEANS entitlement says so, and never has to be
+        re-read to find out which of the two questions it was asking.
+        """
+        return self.can_access(feature, subject, context, period)
+
+    async def ais_entitled(
+        self,
+        feature: str,
+        subject: Subject = None,
+        context: Any = None,
+        period: BillingPeriod | None = None,
+    ) -> bool:
+        return await self.acan_access(feature, subject, context, period)
+
+    def can_consume(
+        self,
+        feature: str,
+        subject: Subject = None,
+        amount: int = 1,
+        context: Any = None,
+        period: BillingPeriod | None = None,
+    ) -> bool:
+        """Entitled AND ``amount`` fits under the ceiling -- the quota-aware read.
+
+        Exactly what :meth:`can_access` answered for a source grant before the
+        ruling, plus billable overage: the ceiling is
+        ``included_quantity + overage_limit``.
+
+        **A READ, not a gate.** Between this and the write that follows, another
+        request can take the last unit. Use :meth:`try_consume` for an actual
+        consumption.
+        """
+        return drive_sync(
+            self._can_consume(feature, subject, amount, context, period),
+            sync_name="can_consume",
+            async_name="acan_consume",
+        )
+
+    async def acan_consume(
+        self,
+        feature: str,
+        subject: Subject = None,
+        amount: int = 1,
+        context: Any = None,
+        period: BillingPeriod | None = None,
+    ) -> bool:
+        return await adrive(self._can_consume(feature, subject, amount, context, period))
+
+    def overage_for(
+        self, feature: str, subject: Subject, period: BillingPeriod | None = None
+    ) -> int:
+        """Billable overage recorded for this subject + feature in the period."""
+        return drive_sync(
+            self._overage_for(feature, subject, period),
+            sync_name="overage_for",
+            async_name="aoverage_for",
+        )
+
+    async def aoverage_for(
+        self, feature: str, subject: Subject, period: BillingPeriod | None = None
+    ) -> int:
+        return await adrive(self._overage_for(feature, subject, period))
 
     def remaining(
         self,
@@ -392,19 +493,19 @@ class FeatureManager:
         if config is not None and (yield from self._check_definition(config, subject, context)):
             return True
 
-        # 5. Sources. A resource grant only counts while quota remains; a
-        #    boolean grant counts on `enabled` alone.
+        # 5. Sources. ENTITLEMENT ONLY.
+        #
+        #    This branch used to answer "enabled AND there is quota left" for a
+        #    resource grant, while steps 2-4 answered "enabled" for the same
+        #    feature defined in the registry -- one question with two answers,
+        #    decided by which layer the plan happened to be modelled in. A
+        #    metered feature whose allowance is exhausted is still ENTITLED: the
+        #    customer is still paying for it. `can_consume` is the quota-aware
+        #    read.
         found = yield from self._grant_for(feature, subject, context)
         if found is not None:
             grant, _ = found
-            if grant.type == "resource":
-                if not grant.enabled:
-                    return False
-                if grant.included_quantity is None:
-                    return True  # unlimited -- see FeatureGrant's warning
-                used = yield self.usage.get_usage(subject, feature, period)
-                return max(0, grant.included_quantity - int(used)) > 0
-            if grant.enabled:
+            if entitled(grant.enabled, grant.type, grant.included_quantity):
                 return True
 
         # 6. Default deny.
@@ -577,10 +678,199 @@ class FeatureManager:
         used = yield self.usage.get_usage(subject, feature, period)
         return int(used)
 
+    def _overage_for(
+        self, feature: str, subject: Subject, period: BillingPeriod | None
+    ) -> Step[int]:
+        getter = getattr(self.usage, "get_overage", None)
+        if not callable(getter):
+            return 0
+        recorded = yield getter(subject, feature, period)
+        return int(recorded or 0)
+
+    def _can_consume(
+        self,
+        feature: str,
+        subject: Subject,
+        amount: int,
+        context: Any,
+        period: BillingPeriod | None,
+    ) -> Step[bool]:
+        if not (yield from self._can_access(feature, subject, context, period)):
+            return False
+        included = yield from self._included_for(feature, subject, context, period)
+        if included is None:
+            return True  # unlimited, or not a resource feature
+        ceiling = yield from self._ceiling_for(feature, subject, context, included)
+        used = int((yield self.usage.get_usage(subject, feature, period)))
+        return allows_consumption(used, whole_units(amount), ceiling)
+
     def _add_usage(
         self, feature: str, subject: Subject, amount: int, period: BillingPeriod | None
     ) -> Step[None]:
+        # The included line is read BEFORE the write, so the billable split is
+        # measured against where the subject actually was.
+        included = yield from self._included_for(feature, subject, None, period)
+        used = int((yield self.usage.get_usage(subject, feature, period)))
         yield self.usage.add_usage(subject, feature, amount, period)
+        yield from self._record_overage(feature, subject, used, amount, included, period)
+        return None
+
+    # -- Overage -----------------------------------------------------------
+
+    def _limit_for(self, feature: str, subject: Subject, context: Any) -> Step[int | object | None]:
+        """The resolved quota BEFORE usage is subtracted.
+
+        ``_UNRESOLVED`` when there is no limit to read -- either the feature is
+        not metered here, or a ``remaining`` callback owns the answer. ``None``
+        is unlimited.
+
+        Extracted so :meth:`_included_for` does not reconstruct it as
+        ``remaining + used``. That derivation is right only while usage is below
+        the line: ``remaining`` is clamped at zero, so once a subject is in
+        overage it reports the limit as whatever they have already spent, and
+        every overage figure downstream then measures from the wrong line.
+        """
+        group_limit = yield from self._group_limit(feature, subject, context)
+        source_limit = yield from self._source_limit(feature, subject, context)
+        external = _max_nullable(group_limit, source_limit)
+
+        definition = self.registry.definition(feature)
+        config = self._config.definition(feature)
+
+        if definition is not None and definition.type == "resource":
+            merged = _with_merged_limit(definition, external)
+        elif config is not None and config.type == "resource":
+            merged = _with_merged_limit(config, external)
+        elif external is not None:
+            merged = Feature(key=feature, type="resource", limit=external)
+        else:
+            # `_source_limit` returns None for BOTH "no source limit" and "an
+            # unlimited grant", so the grant itself is the only way to tell.
+            found = yield from self._grant_for(feature, subject, context)
+            if found is not None:
+                grant, _ = found
+                if grant.enabled and grant.type == "resource":
+                    return None  # unlimited
+            return _UNRESOLVED
+
+        if callable(merged.remaining):
+            return _UNRESOLVED  # the callback owns it; there is no limit to read
+
+        raw = merged.limit
+        if callable(raw):
+            raw = yield call_definition_callback(
+                raw, subject, context, feature=feature, field="limit"
+            )
+        return None if raw is None else _to_int(raw)
+
+    def _included_for(
+        self, feature: str, subject: Subject, context: Any, period: BillingPeriod | None
+    ) -> Step[int | None]:
+        """The included quantity; ``None`` when unlimited or not metered here."""
+        limit = yield from self._limit_for(feature, subject, context)
+        if limit is not _UNRESOLVED:
+            return limit  # type: ignore[return-value]
+        # A `remaining` callback owns the answer, so the line has to be derived
+        # from it. Correct while usage is at or below the line, which is the only
+        # place a caller-supplied `remaining` gives enough to work with.
+        remaining = yield from self._remaining(feature, subject, context, period)
+        if remaining is None:
+            return None
+        used = int((yield self.usage.get_usage(subject, feature, period)))
+        return remaining + used
+
+    def _can_record_overage(self) -> bool:
+        """Can billable overage be written down anywhere?
+
+        **A store that cannot record overage does not get to permit it.** With
+        neither ``add_overage`` nor an ``on_overage`` listener the ceiling stays
+        at the included quantity, which is what every host had before this
+        ruling. That is the whole opt-in mechanism, and it fails closed:
+        unbilled usage is the one failure that cannot be repaired after the fact.
+        """
+        return callable(getattr(self.usage, "add_overage", None)) or bool(self._overage_listeners)
+
+    def _ceiling_for(
+        self, feature: str, subject: Subject, context: Any, included: int | None
+    ) -> Step[int | None]:
+        if included is None:
+            return None
+        if not self._can_record_overage():
+            return included
+        limit = yield from self._overage_limit_for(feature, subject, context)
+        return consumption_ceiling(included, limit)
+
+    def _overage_limit_for(self, feature: str, subject: Subject, context: Any) -> Step[int | None]:
+        """MAX billable-overage allowance across definition, groups and grants.
+
+        Same most-generous rule ``limit`` uses: a paid plan may raise an
+        allowance and may never silently lower one.
+        """
+        best: int | None = None
+
+        def consider(value: Any) -> None:
+            nonlocal best
+            if value is None:
+                return
+            n = _to_int(value)
+            if best is None or n > best:
+                best = n
+
+        for definition in (self.registry.definition(feature), self._config.definition(feature)):
+            if definition is not None:
+                consider(definition.overage_limit)
+
+        for group_key in (yield from self._matching_groups(feature, subject, context)):
+            override = self.group_registry.resolved_overrides(group_key).get(feature)
+            if override:
+                consider(override.get("overage_limit"))
+
+        for source in self._sources:
+            for grant in (yield source.grants_for(subject, context)) or ():
+                if grant.key == feature and grant.enabled and grant.type == "resource":
+                    consider(grant.overage_limit)
+
+        return best
+
+    def _record_overage(
+        self,
+        feature: str,
+        subject: Subject,
+        used_before: int,
+        amount: int,
+        included: int | None,
+        period: BillingPeriod | None,
+    ) -> Step[None]:
+        """Write down the billable share of a usage change, and announce it.
+
+        ``overage_delta`` is signed, so a refund unwinds by the same arithmetic
+        that recorded it and the two directions cannot drift apart. The event
+        fires only on the way up: a credit is a decision about money, and
+        inventing one from a usage correction is not this package's call.
+        """
+        if not self._can_record_overage() or included is None:
+            return None
+
+        delta = overage_delta(used_before, amount, included)
+        if delta == 0:
+            return None
+
+        adder = getattr(self.usage, "add_overage", None)
+        if callable(adder):
+            yield adder(subject, feature, delta, period)
+
+        if delta > 0:
+            recorded = yield from self._overage_for(feature, subject, period)
+            event = OverageEvent(
+                feature=feature,
+                subject=subject,
+                units=delta,
+                total_units=recorded if recorded > 0 else delta,
+                included_quantity=included,
+                period=period,
+            )
+            for listener in self._overage_listeners:
+                yield listener(event)
         return None
 
     def _try_consume(
@@ -600,29 +890,33 @@ class FeatureManager:
                 "return quota; a negative consume bypasses the limit it is meant to enforce."
             )
 
-        remaining = yield from self._remaining(feature, subject, context, period)
+        included = yield from self._included_for(feature, subject, context, period)
 
-        if remaining is None:
+        if included is None:
             # Unlimited is not unmetered: a host that cannot bill what it cannot
             # count is the reason this records rather than short-circuits.
             yield self.usage.add_usage(subject, feature, amount, period)
             return True
 
-        # `remaining` and `used` MUST come from the same period bucket, or the
-        # derived limit belongs to neither. Mixing them is the live bug in
-        # `fancy-features-js`; see BillingPeriod's docstring.
+        ceiling = yield from self._ceiling_for(feature, subject, context, included)
+
+        # `used` and the ceiling MUST come from the same period bucket, or the
+        # limit being enforced belongs to neither.
         used = int((yield self.usage.get_usage(subject, feature, period)))
-        limit = remaining + used
 
         atomic = getattr(self.usage, "try_consume", None)
         if callable(atomic):
-            return bool((yield atomic(subject, feature, amount, limit, period)))
+            taken = bool((yield atomic(subject, feature, amount, ceiling, period)))
+            if taken:
+                yield from self._record_overage(feature, subject, used, amount, included, period)
+            return taken
 
         # Non-atomic fallback: correct in one process, TOCTOU-racy across
         # several. A production store implements `try_consume` with a row lock.
-        if remaining < amount:
+        if not allows_consumption(used, amount, ceiling):
             return False
         yield self.usage.add_usage(subject, feature, amount, period)
+        yield from self._record_overage(feature, subject, used, amount, included, period)
         return True
 
     def _reset_period(self, subject: Subject, period: BillingPeriod) -> Step[None]:
