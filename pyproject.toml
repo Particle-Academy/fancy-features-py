@@ -1,0 +1,131 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fancy-features"
+version = "0.1.0"
+description = "Headless feature management and metered-resource gating - feature flags, feature groups, quotas and billing-period usage. The Python twin of PHP particle-academy/laravel-fms and Node @particle-academy/fancy-features, and the owner of the shared feature contract fancy-catalog consumes."
+readme = "README.md"
+# 3.11, not the modal 3.10: 3.10 reaches end of life on 2026-10-31, and a floor
+# that dies before the package's second release is not a floor.
+requires-python = ">=3.11"
+# PEP 639: an SPDX expression, and NO license classifier - build backends may
+# error when both are present.
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Particle Academy" }]
+keywords = [
+    "feature-flags",
+    "feature-management",
+    "entitlements",
+    "gating",
+    "quota",
+    "metering",
+    "billing",
+    "fms",
+    "headless",
+    "fancy",
+    "particle-academy",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries",
+    "Typing :: Typed",
+]
+
+# ZERO runtime dependencies, and that is a constraint rather than an accident.
+#
+# This package is a GATE: it sits in the request path of everything it protects,
+# and it is installed alongside a web framework, an ORM and a billing SDK the
+# host already chose. Anything taken here is imposed on all of them.
+#
+# There is also nothing left to take. Persistence is a Protocol with an
+# in-memory default; the subject is opaque; the resolution chain is arithmetic
+# and dictionaries. `pydantic` was considered and refused for the reason the
+# flow port refused it: the feature contract is Fancy's own data shape and must
+# mean the same thing as the PHP and Node twins, so a validation library's
+# coercion rules would become a second, invisible spec.
+#
+# Any addition here has to be justified in
+# `.ai/plans/fancy-python-commerce-gating.md`.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Particle-Academy/fancy-features-py"
+Issues = "https://github.com/Particle-Academy/fancy-features-py/issues"
+Source = "https://github.com/Particle-Academy/fancy-features-py"
+
+# Runtime-optional FEATURES only. Anything only a maintainer needs is a
+# dependency group below, never an extra: PEP 735 groups are excluded from
+# published metadata, extras are permanent.
+#
+# Empty at 0.1.0 by design - the framework adapters are staged, and an extra
+# that installs nothing is worse than an absent one.
+[project.optional-dependencies]
+
+[dependency-groups]
+test = ["pytest>=8.0"]
+lint = ["ruff>=0.16"]
+typecheck = ["mypy>=1.11"]
+dev = [{ include-group = "test" }, { include-group = "lint" }, { include-group = "typecheck" }]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fancy_features"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/README.md", "/CHANGELOG.md", "/AGENTS.md", "/LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `pythonpath` so the suite runs on a bare checkout with nothing but pytest,
+# the way `npm test` does for the Node twin. `--import-mode=importlib` pairs
+# with the src layout: test modules are imported by path, not by guessing a
+# package name from the directory.
+#
+# CI ALSO installs the wheel and runs the suite against it, because only that
+# catches an unshipped file or a missing `py.typed`.
+pythonpath = ["src"]
+addopts = "--import-mode=importlib -ra"
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "N", "C4", "PT"]
+ignore = [
+    # The resolution chain is one generator on purpose: splitting it is how a
+    # second copy of the ordering rules gets written, and the ordering IS the
+    # contract.
+    "C901",
+    # `__all__` is grouped by role -- the shared contract, the engine, the
+    # adapters, the guard, the helpers, the errors -- with a comment on each
+    # block saying which. Alphabetising it would delete the one place a reader
+    # can see that this package OWNS the contract and merely ships the rest.
+    "RUF022",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests reach into private state and assert on broad exception types
+# deliberately.
+"tests/*" = ["SLF001", "PT011", "PT012", "PT018", "ARG001", "ARG005", "E501"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["fancy_features"]
+mypy_path = "src"
+strict = true
+# The subject is opaque by contract and a definition's callbacks are the host's:
+# `Any` is the honest type for both. Forbidding it would only push the same
+# uncertainty into casts.
+disallow_any_expr = false
+disallow_any_explicit = false
