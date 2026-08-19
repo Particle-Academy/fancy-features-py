@@ -28,11 +28,11 @@ features = create_features(
     ],
 )
 
-features.can_access("use-mcp", user)        # True
-features.remaining("ai-tokens", user)       # 10000
-features.try_consume("ai-tokens", user, 40) # True  -- atomic check-and-increment
-features.remaining("ai-tokens", user)       # 9960
-features.explain("ai-tokens", user)         # AccessResult(source="config", used=40, ...)
+features.can_access("use-mcp", user)  # True
+features.remaining("ai-tokens", user)  # 10000
+features.try_consume("ai-tokens", user, 40)  # True  -- atomic check-and-increment
+features.remaining("ai-tokens", user)  # 9960
+features.explain("ai-tokens", user)  # AccessResult(source="config", used=40, ...)
 ```
 
 Every method has an `a`-prefixed twin for async hosts — `acan_access`,
@@ -78,12 +78,13 @@ Every one may be synchronous or asynchronous. A dict-backed store returns an
 from datetime import datetime, UTC
 from fancy_features import BillingPeriod
 
-january = BillingPeriod(start=datetime(2026, 1, 1, tzinfo=UTC),
-                        end=datetime(2026, 2, 1, tzinfo=UTC))
+january = BillingPeriod(
+    start=datetime(2026, 1, 1, tzinfo=UTC), end=datetime(2026, 2, 1, tzinfo=UTC)
+)
 
 features.try_consume("ai-tokens", user, 500, period=january)
 features.remaining("ai-tokens", user, period=january)
-features.reset_period(user, january)      # the renewal reset
+features.reset_period(user, january)  # the renewal reset
 ```
 
 The period reaches the store on **every** quota path — reads and writes alike.
@@ -100,8 +101,8 @@ features = create_features(
     sources=[create_catalog_feature_source(catalog, resolve_subscription=lookup)],
 )
 
-features.can_access("use-mcp", user)     # resolved through the user's plan
-features.remaining("ai-tokens", user)    # the plan's included quantity, minus usage
+features.can_access("use-mcp", user)  # resolved through the user's plan
+features.remaining("ai-tokens", user)  # the plan's included quantity, minus usage
 ```
 
 The two packages share **one** definition of the contract, in
@@ -113,7 +114,7 @@ The two packages share **one** definition of the contract, in
 from fancy_features import FeatureAccessDeniedError, require_feature
 
 try:
-    require_feature(features, ["use-mcp", "use-agents"], user)   # OR
+    require_feature(features, ["use-mcp", "use-agents"], user)  # OR
 except FeatureAccessDeniedError as denied:
     return json_response({"features": denied.features}, status=denied.status)
 ```
