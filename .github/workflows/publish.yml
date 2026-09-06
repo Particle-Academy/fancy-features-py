@@ -26,9 +26,30 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           grep -q "^## \[${version}\]" CHANGELOG.md || {
-            echo "No CHANGELOG.md entry for ${version}."
+            echo "::error::No CHANGELOG.md entry for ${version}."
             exit 1
           }
+
+          # ORDER, not just presence. The check above asks only whether a
+          # heading exists SOMEWHERE. fancy-flow's changelog had four sections
+          # inserted ABOVE the [Unreleased] marker, so everything appended
+          # since -- including 0.49.0 -- landed below them, and reading
+          # top-down showed 0.48.1 as newest. That PASSED the presence check.
+          #
+          # A consumer deciding whether to upgrade reads top-down. Complete but
+          # mis-ordered is a truthful-looking lie, and it is invisible to
+          # whoever wrote it, because they are looking at their own entry
+          # rather than at the file.
+          first=$(grep -E '^## ' CHANGELOG.md \
+            | grep -viE '^## +\[?unreleased\]?' \
+            | head -1)
+
+          if ! printf '%s' "$first" | grep -qE "^## +\[?v?${version}\]?"; then
+            echo "::error::CHANGELOG.md has an entry for ${version}, but it is NOT the first version heading."
+            echo "::error::Top of file is: ${first}"
+            echo "::error::Move this release above the older entries, then re-tag."
+            exit 1
+          fi
 
       # Release gate: third-party dependencies must be approved and still
       # maintained BEFORE the tarball reaches the registry. Once it is
