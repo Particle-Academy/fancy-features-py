@@ -8,6 +8,11 @@ version number is not a promise it can yet keep; the entries are.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`__version__` reported 0.1.0 from a 0.2.0 package.** A literal with nothing comparing it to `pyproject.toml`. It now reads the installed distribution metadata, and `test_version_metadata.py` fails if a literal comes back.
+
+
 ## [0.2.0] - unreleased
 
 Two owner rulings, applied to all three runtimes together (`laravel-fms` 0.11.0,

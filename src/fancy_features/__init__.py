@@ -75,7 +75,31 @@ from .quota import (
 from .registry import FeatureRegistry
 from .usage import InMemoryUsageStore, whole_units
 
-__version__ = "0.1.0"
+def _installed_version() -> str:
+    """This package's version, read from the INSTALLED distribution metadata.
+
+    Not a literal. A literal here is a second copy of a number that already
+    lives in ``pyproject.toml``, and the two drift with nothing comparing them.
+    That is not hypothetical in this estate: ``fancy-flow-py`` shipped
+    ``__version__ = "0.1.0"`` against a 0.4.0 distribution for three releases,
+    and the runtime's first outside consumer installed 0.4.0, read 0.1.0, and
+    reported it.
+
+    Reading from metadata removes the second copy rather than re-syncing it, so
+    there is nothing left to drift. The fallback covers a source tree that was
+    never installed — a case where ``pyproject.toml`` is the only truth and no
+    distribution exists to disagree with it.
+    """
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _distribution_version
+
+    try:
+        return _distribution_version("fancy-features")
+    except PackageNotFoundError:  # pragma: no cover — an uninstalled source tree
+        return "0.0.0+unknown"
+
+
+__version__ = _installed_version()
 
 __all__ = [
     # -- The shared contract (this package owns it; fancy-catalog imports it) --
