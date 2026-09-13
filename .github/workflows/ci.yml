@@ -43,6 +43,19 @@ jobs:
           # multi-line run: block is PowerShell and rm -rf is not a command.
           node -e "require('node:fs').rmSync('.third-party-allowlist',{recursive:true,force:true})"
 
+      # The shared conformance fixtures. `fancy-conformance` is in the `test`
+      # dependency group and is NOT on PyPI, so `pip install --group dev` alone
+      # cannot resolve it -- this workflow failed at Install on every run from
+      # its first, on 2026-08-19, with "No matching distribution found for
+      # fancy-conformance". Checked out, NOT skipped when absent: a conformance
+      # suite that silently does not run reads exactly like full coverage.
+      - name: Check out fancy-conformance
+        uses: actions/checkout@v4
+        with:
+          repository: Particle-Academy/fancy-conformance
+          path: .conformance
+          persist-credentials: false
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -50,6 +63,11 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
+          # The checkout FIRST: once it is installed, the group's
+          # `fancy-conformance` requirement is already satisfied and pip never
+          # asks PyPI for a package that is not there. The group stays the one
+          # list of what the suite needs.
+          python -m pip install -e ./.conformance/python
           python -m pip install -e . --group dev
 
       - name: Lint
@@ -58,7 +76,13 @@ jobs:
       - name: Type check
         run: mypy
 
+      # pyproject's `pythonpath` names ../fancy-conformance/python/src, which is
+      # where the loader sits in the .agi envelope and does not exist here. The
+      # editable install above supplies the loader; the root is set explicitly
+      # so the fixtures read are the checkout this job made, not a guess.
       - name: Test
+        env:
+          FANCY_CONFORMANCE_ROOT: ${{ github.workspace }}/.conformance
         run: pytest -ra
 
       # The suite runs on a bare checkout via `pythonpath = ["src"]`, which is
@@ -66,6 +90,8 @@ jobs:
       # against a built wheel catches an unshipped file or a missing `py.typed`,
       # and both of those pass locally and break for every user.
       - name: Test the built wheel
+        env:
+          FANCY_CONFORMANCE_ROOT: ${{ github.workspace }}/.conformance
         run: |
           python -m pip install --upgrade build
           python -m build --wheel

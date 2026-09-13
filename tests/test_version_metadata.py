@@ -48,7 +48,7 @@ def test_version_matches_the_installed_distribution() -> None:
     installed = _installed()
     if installed is None:
         pytest.skip(
-            f"{{DISTRIBUTION}} is not installed in this environment, so there is no "
+            f"{DISTRIBUTION} is not installed in this environment, so there is no "
             "distribution metadata to compare against. CI installs the package "
             "(`pip install -e .`) before running these, so this assertion does run "
             "there — it is skipped here, not passing here."
@@ -67,7 +67,7 @@ def test_version_matches_pyproject() -> None:
     """
     if _installed() is None:
         pytest.skip(
-            f"{{DISTRIBUTION}} is not installed, so `__version__` is the deliberate "
+            f"{DISTRIBUTION} is not installed, so `__version__` is the deliberate "
             "uninstalled-tree fallback rather than a real version."
         )
 
@@ -75,9 +75,9 @@ def test_version_matches_pyproject() -> None:
     declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
 
     assert fancy_features.__version__ == declared, (
-        f"fancy_features.__version__ is {{fancy_features.__version__!r}} but pyproject.toml declares "
-        f"{{declared!r}}. If these disagree, reinstall — and if they disagree after a "
-        f"reinstall, the dynamic read has been replaced by a literal again."
+        f"fancy_features.__version__ is {fancy_features.__version__!r} but pyproject.toml declares "
+        f"{declared!r}. If these disagree, reinstall — and if they disagree after a "
+        "reinstall, the dynamic read has been replaced by a literal again."
     )
 
 
@@ -103,7 +103,7 @@ def test_version_is_not_a_hardcoded_literal() -> None:
 
             value = stripped.split("=", 1)[1].strip()
             assert not value.startswith(('"', "'")), (
-                f"`{{stripped}}` assigns a string literal. Read the version from the "
+                f"`{stripped}` assigns a string literal. Read the version from the "
                 "installed distribution metadata instead — a literal is a second "
                 "copy of pyproject.toml's number, and second copies drift silently."
             )

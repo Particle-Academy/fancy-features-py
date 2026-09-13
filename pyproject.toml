@@ -107,6 +107,10 @@ filterwarnings = ["error"]
 line-length = 100
 src = ["src", "tests"]
 target-version = "py311"
+# CI checks fancy-conformance out INSIDE the workspace (`.github/workflows/ci.yml`),
+# and `ruff check .` would otherwise lint that repository with this one's rules.
+# Its code is linted in its own CI; a lint failure in it is not a defect here.
+extend-exclude = [".conformance"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "N", "C4", "PT"]

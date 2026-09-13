@@ -75,6 +75,7 @@ from .quota import (
 from .registry import FeatureRegistry
 from .usage import InMemoryUsageStore, whole_units
 
+
 def _installed_version() -> str:
     """This package's version, read from the INSTALLED distribution metadata.
 

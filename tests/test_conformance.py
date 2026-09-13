@@ -35,14 +35,17 @@ SUITE = "shared/feature-entitlement"
 
 #: Moved deliberately, never automatically. A pin that follows whatever is on
 #: disk asserts nothing.
-# Moved to 0.20.0 on 2026-09-10, deliberately and not to get to green: every
-# table above was re-run against the checkout FIRST and every row passes, with
-# the only skip being the documented cross-engine one. the entitlement table, 26 rows.
+# Moved to 0.22.0 on 2026-09-13, deliberately and not to get to green: the
+# entitlement table was re-run against a 0.22.0 checkout FIRST -- 26 passed,
+# 0 failed, 0 skipped -- and `suites/shared/feature-entitlement` has no diff
+# between v0.20.0 and v0.22.0.
 #
 # Five ports had drifted to a pin this stale at once, which says the failure is
 # structural rather than anyone forgetting: the pin only moves when a human
 # re-runs the tables, and nothing prompts that when the fixture package ships.
-PINNED_SUITE_VERSION = "0.20.0"
+# CI checks out fancy-conformance `main`, so this test goes red on the next
+# fixture release by design: that red IS the prompt.
+PINNED_SUITE_VERSION = "0.22.0"
 
 _IMPL = {
     "entitled": lambda i: entitled(i["enabled"], i["type"], i["includedQuantity"], i["used"]),
