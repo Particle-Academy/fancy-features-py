@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Particle-Academy/fancy-conformance
-          ref: v0.22.0
+          ref: v0.22.1
           path: .conformance
           persist-credentials: false
 

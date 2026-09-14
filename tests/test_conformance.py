@@ -43,6 +43,11 @@ SUITE = "shared/feature-entitlement"
 # 0 failed, 0 skipped -- and `suites/shared/feature-entitlement` has no diff
 # between v0.20.0 and v0.22.0.
 #
+# Moved 0.22.0 -> 0.22.1 on 2026-09-13. That release changed no case and no
+# golden (the Rust loader pins fancy-json by tag, plus docs); the entitlement
+# table was re-run against a v0.22.1 checkout first all the same -- 26 passed,
+# 0 failed, 0 skipped, the same counts CI printed at 0.22.0.
+#
 # Five ports had drifted to a pin this stale at once, which says the failure is
 # structural rather than anyone forgetting: the pin only moves when a human
 # re-runs the tables, and nothing prompts that when the fixture package ships.
@@ -52,7 +57,7 @@ SUITE = "shared/feature-entitlement"
 # would be the prompt; in practice a build sat red for weeks, for a reason no
 # commit here caused, and nobody read it. Move the pin and the ref together;
 # test_ci_checks_out_the_fixture_tag_this_suite_pins fails otherwise.
-PINNED_SUITE_VERSION = "0.22.0"
+PINNED_SUITE_VERSION = "0.22.1"
 
 _IMPL = {
     "entitled": lambda i: entitled(i["enabled"], i["type"], i["includedQuantity"], i["used"]),
