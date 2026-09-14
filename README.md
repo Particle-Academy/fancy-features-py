@@ -1,10 +1,12 @@
 # fancy-features
 
+[![Fancified](art/fancified.svg)](https://particle.academy)
+
 **Headless feature management and metered-resource gating for Python.** Feature
 flags, feature groups, per-plan quotas and billing-period usage — with no web
 framework, no ORM and no runtime dependencies at all.
 
-The Python twin of [`particle-academy/laravel-fms`](https://github.com/Particle-Academy/laravel-fms)
+The Python twin of [`particle-academy/laravel-fms`](https://github.com/Particle-Academy/laravel-feature-management-system)
 (PHP) and [`@particle-academy/fancy-features`](https://github.com/Particle-Academy/fancy-features-js)
 (Node/TypeScript), and the owner of the shared feature contract
 [`fancy-catalog`](https://github.com/Particle-Academy/fancy-catalog-py) consumes.
