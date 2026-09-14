@@ -164,8 +164,12 @@ The suite runs on a bare checkout via `pythonpath = ["src"]`. **CI also installs
 the wheel and runs against it** — only that catches an unshipped file or a
 missing `py.typed`.
 
-The `shared/feature-entitlement` conformance rows run from the sibling checkout
-through a path dependency; `PINNED_SUITE_VERSION` is moved deliberately, never
+The `shared/feature-entitlement` conformance rows run through
+`fancy_conformance`, the shared loader, which is on pytest's `pythonpath` from the
+sibling checkout in the envelope (CI checks out the pinned tag and sets
+`PYTHONPATH` to its `python/src`). It is deliberately not in any dependency
+group: `fancy-conformance` is never published to PyPI, so a group entry breaks
+`pip install --group dev`. `PINNED_SUITE_VERSION` is moved deliberately, never
 to match whatever is on disk.
 
 Every load-bearing behaviour here has been mutation-checked: reproducing the

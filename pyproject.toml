@@ -71,18 +71,16 @@ Source = "https://github.com/Particle-Academy/fancy-features-py"
 [project.optional-dependencies]
 
 [dependency-groups]
-# `fancy-conformance` is the shared FIXTURE package, first-party and with zero
-# runtime dependencies of its own. Test-only, in a PEP 735 group, so it never
-# reaches published metadata.
-test = ["pytest>=8.0", "fancy-conformance"]
+# `fancy-conformance` is deliberately NOT a requirement here. It is the suite's
+# internal alignment tool, not a product, and is never published to PyPI, so
+# listing it sent `pip install -e . --group dev` to PyPI for a name that does not
+# exist and failed the whole install. The loader reaches the suite through
+# pytest's `pythonpath` below instead -- the checkout beside this repository in
+# the .agi envelope -- and CI puts its checkout of the pinned tag on PYTHONPATH.
+test = ["pytest>=8.0"]
 lint = ["ruff>=0.16"]
 typecheck = ["mypy>=1.11"]
 dev = [{ include-group = "test" }, { include-group = "lint" }, { include-group = "typecheck" }]
-
-[tool.uv.sources]
-# Not on PyPI yet. It is checked out beside this repository in the .agi
-# envelope; CI checks it out explicitly.
-fancy-conformance = { path = "../fancy-conformance/python", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fancy_features"]
@@ -99,6 +97,10 @@ testpaths = ["tests"]
 #
 # CI ALSO installs the wheel and runs the suite against it, because only that
 # catches an unshipped file or a missing `py.typed`.
+#
+# `../fancy-conformance/python/src` is the shared fixture loader, from the
+# checkout beside this repository in the .agi envelope. CI has no such sibling
+# and sets PYTHONPATH to its own checkout of the pinned tag instead.
 pythonpath = ["src", "../fancy-conformance/python/src"]
 addopts = "--import-mode=importlib -ra"
 filterwarnings = ["error"]
