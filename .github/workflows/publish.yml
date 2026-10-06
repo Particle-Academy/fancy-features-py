@@ -12,10 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -58,7 +58,7 @@ jobs:
       # here. The allowlist is FETCHED, never vendored: one source of truth,
       # so there is no per-repo copy that can drift out of agreement with it.
       - name: Fetch the third-party allowlist
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: Particle-Academy/.github
           path: .third-party-allowlist
@@ -83,7 +83,7 @@ jobs:
           }
 
       - run: python -m pip install --upgrade build && python -m build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dists
           path: dist/
@@ -97,7 +97,7 @@ jobs:
     permissions:
       id-token: write        # mandatory for Trusted Publishing
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dists
           path: dist/
@@ -127,7 +127,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
