@@ -8,11 +8,17 @@ version number is not a promise it can yet keep; the entries are.
 
 ## [Unreleased]
 
+### Changed
+
+- **Releases need a lab-run certificate.** `publish.yml` gains a read-only
+  `lab-certificate` job that every publishing job needs: a tag is published only
+  when the fancy-labs lab has certified that exact version and commit. Consumers
+  do nothing; this changes how releases are cut, not what the package does.
+
 ### Fixed
 
 - **`__version__` reported 0.1.0 from a 0.2.0 package.** A literal with nothing comparing it to `pyproject.toml`. It now reads the installed distribution metadata, and `test_version_metadata.py` fails if a literal comes back.
 - **`src/fancy_features/__init__.py` failed `ruff format --check`** (one blank line, not two, before `_installed_version`). Whitespace only, no behaviour change, nothing to do. Unseen because the Tests workflow had never got past Install: `fancy-conformance` was in the `test` group and is not on PyPI, and CI never checked it out. It does now.
-
 
 ## [0.2.0] - unreleased
 
