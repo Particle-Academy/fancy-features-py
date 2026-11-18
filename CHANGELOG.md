@@ -10,6 +10,10 @@ version number is not a promise it can yet keep; the entries are.
 
 ### Changed
 
+- **CI: the lab-certificate gate verifies against the lab's rotated key list.**
+  The lab's first signing key is retired: certificates it already issued still
+  verify, and nothing new it signs ever can. Consumers do nothing.
+
 - **Releases need a lab-run certificate.** `publish.yml` gains a read-only
   `lab-certificate` job that every publishing job needs: a tag is published only
   when the fancy-labs lab has certified that exact version and commit. Consumers
